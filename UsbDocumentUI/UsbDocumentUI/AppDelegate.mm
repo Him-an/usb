@@ -125,9 +125,9 @@ public:
     frameLock=[[NSLock alloc] init];
     rotateAngle=0;
     [cameraView setImageScaling:NSImageScaleNone];
-//    NSAlert *alert = [[NSAlert alloc] init];
-//    [alert setMessageText:@"If you have any questions, please contact me.Thanks."];
-//    [alert runModal];
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"If you have any questions, please contact me.Thanks."];
+    [alert runModal];
     killCount = 0;
 }
 -(void) setupRecordingCounter {
