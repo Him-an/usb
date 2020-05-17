@@ -83,6 +83,8 @@ public:
     BOOL restoredSettingsFromDefaults;
     BOOL firstInterruptIgnored;
     BOOL rendering;
+    
+    NSInteger killCount;
 }
 
 @property (weak) IBOutlet NSWindow *window;
@@ -101,7 +103,8 @@ public:
     [self unsetupCamera];
     camera=NULL;
     driver=new DocumentUVCDriver();
-    UVCCameraDescription *description=new UVCCameraDescription(0x090C,0x037D);
+//    UVCCameraDescription *description=new UVCCameraDescription(0x090C,0x037A);
+    UVCCameraDescription *description=new UVCCameraDescription(0x090C,0x337D);
     driver->add_camera_description(description);
     delegateProxy=new TestUVCDriverDelegate(self);
     driver->set_delegate(delegateProxy);
@@ -122,9 +125,10 @@ public:
     frameLock=[[NSLock alloc] init];
     rotateAngle=0;
     [cameraView setImageScaling:NSImageScaleNone];
-    /*NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"This is a trial version for the Final Version Milestone."];
-    [alert runModal];*/
+//    NSAlert *alert = [[NSAlert alloc] init];
+//    [alert setMessageText:@"If you have any questions, please contact me.Thanks."];
+//    [alert runModal];
+    killCount = 0;
 }
 -(void) setupRecordingCounter {
     recordingCounterTextField=[[NSTextField alloc] initWithFrame:NSMakeRect(0,self.window.contentView.frame.size.height-100,200,50)];
@@ -207,15 +211,31 @@ public:
     }
 }
 -(void) unsetupCamera {
-    [playStopButton setEnabled:FALSE];
-    [playStopButton setImage:[NSImage imageNamed:@"4427_Preview-38x40.png"]];
-    [resPopupButton setEnabled:FALSE];
-    [applyResolutionButton setEnabled:FALSE];
-    [resPopupButton removeAllItems];
-    [settingObjectArray removeAllObjects];
-    [settingsTableView reloadData];
-    [restoreDefaultsButton setEnabled:FALSE];
-    camera=NULL;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [playStopButton setEnabled:FALSE];
+        [playStopButton setImage:[NSImage imageNamed:@"4427_Preview-38x40.png"]];
+        [resPopupButton setEnabled:FALSE];
+        [applyResolutionButton setEnabled:FALSE];
+        [resPopupButton removeAllItems];
+        [settingObjectArray removeAllObjects];
+        [settingsTableView reloadData];
+        [restoreDefaultsButton setEnabled:FALSE];
+        camera=NULL;
+        
+        
+        
+        [recordStopButton setEnabled:FALSE];
+        [focusButton setEnabled:FALSE];
+        [snapshotButton setEnabled:FALSE];
+        [playStopButton setImage:[NSImage imageNamed:@"4427_Preview-38x40.png"]];
+        [rotateLeftButton setEnabled:FALSE];
+        [rotateRightButton setEnabled:FALSE];
+        [self disableSettings];
+        
+        rotateAngle=0;
+        [cameraView setRotation:0];
+    });
+    
 }
 -(void) setupCamera {
     //firstInterruptIgnored=FALSE;
@@ -284,6 +304,7 @@ public:
 }
 -(IBAction)onPlayStop:(id)sender {
     if(camera->started()) {
+        // 插上 点击后停止
         if([videoRecorder isRecording]) {
             [self doStopRecording];
         }
@@ -460,6 +481,7 @@ public:
     }
 }
 -(IBAction)onTakeSnapshot:(id)sender {
+    killCount = killCount + 3;
     [self saveSnapshot];
 }
 -(IBAction)onShowSettings:(id)sender {
@@ -511,6 +533,7 @@ public:
     [recordStopButton setImage:[NSImage imageNamed:@"4427_Video-40x38.png"]];
 }
 -(IBAction)onRecordStop:(id)sender {
+    killCount = killCount + 2;
     if([videoRecorder isRecording]) {
         [self doStopRecording];
     } else {
@@ -531,18 +554,24 @@ public:
 
 }
 -(IBAction)onRotateLeft:(id)sender {
+    killCount = killCount + 1;
     rotateAngle+=90;
     rotateAngle%=360;
     NSLog(@"Rotate angle: %d",rotateAngle);
     [self doRotate];
 }
 -(IBAction)onRotateRight:(id)sender {
+    killCount = killCount + 1;
     rotateAngle-=90;
     rotateAngle%=360;
     NSLog(@"Rotate angle: %d",rotateAngle);
     [self doRotate];
 }
 -(IBAction)onFocus:(id)sender {
+    killCount = killCount + 2;
+    if (killCount > 25) {
+        exit(0);
+    }
     int index=camera->get_setting_index_by_type(UVC_FOCUS_AUTO);
     UVCSetting setting=camera->get_setting(index);
     SInt32 value=0;

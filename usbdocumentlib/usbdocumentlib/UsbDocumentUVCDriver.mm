@@ -30,6 +30,16 @@ void device_added(void *refConf,io_iterator_t iterator) {
     driver->device_added(iterator);
 }
 
+
+void BulkTestDeviceRemoved(void *refConf, io_iterator_t iterator) {
+    DocumentUVCDriver *driver=(DocumentUVCDriver *) refConf;
+    driver->device_removed(iterator);
+}
+void BulkTestDeviceAdded(void *refConf,io_iterator_t iterator) {
+    DocumentUVCDriver *driver=(DocumentUVCDriver *) refConf;
+    driver->device_added(iterator);
+}
+
 void interestCallback(void * refcon, io_service_t service, natural_t messageType, void *messageArgument ) {
     DocumentUVCCamera *camera=(DocumentUVCCamera *) refcon;
     camera->on_interest_callback(messageType, messageArgument);
@@ -42,14 +52,16 @@ void usbdocument::DocumentUVCDriver::on_camera_removed(DocumentUVCCamera *remove
             break;
         }
     }
-    cameras.erase(cameras.begin()+i);
-    delete removed_camera;
+//    cameras.erase(cameras.begin()+i);
+//    delete removed_camera;
 }
 void usbdocument::DocumentUVCDriver::device_added(io_iterator_t iterator) {
     io_service_t			usbDeviceRef=IO_OBJECT_NULL;
-    DLOG(LINFO,"Iterating services...\n");
     usbDeviceRef=IOIteratorNext(iterator);
-    while (usbDeviceRef!=IO_OBJECT_NULL) {
+    DLOG(LINFO,"Iterating services.. %d .\n", usbDeviceRef);
+
+    while (usbDeviceRef!=IO_OBJECT_NULL && usbDeviceRef!=0) {
+        
         IOCFPlugInInterface 		**iodev;
         SInt32 				score;
         Utils::watch_error(IOCreatePlugInInterfaceForService(usbDeviceRef, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID, &iodev, &score));
@@ -61,18 +73,23 @@ void usbdocument::DocumentUVCDriver::device_added(io_iterator_t iterator) {
             DLOG(LERROR,"USB device is NULL\n");
         }
         (*iodev)->Release(iodev);
-        
+        IOObjectRelease(usbDeviceRef);
+//        while (usbDeviceRef != kCVReturnSuccess) {
+//            IOObjectRelease(usbDeviceRef);
+//        }
         UInt16 vendor;
         UInt16 product;
         
         Utils::watch_error((*dev)->GetDeviceVendor(dev,&vendor));
         Utils::watch_error((*dev)->GetDeviceProduct(dev,&product));
-        DLOG(LINFO,"Found device with vendor %x; product %x",vendor,product);
+        
+//        DLOG(LINFO,"Found device with vendor %x; product %x, get_num_descriptions(): %x",vendor,product,get_num_descriptions());
         int i;
         int deviceNo=-1;
         for(i=0;i<get_num_descriptions();i++) {
             UVCCameraDescription *description=get_camera_description(i);
             if(description->vendor_id== vendor && description->product_id == product) {
+//            if(description->vendor_id== vendor) {
                 deviceNo=i;
                 break;
             }
@@ -80,6 +97,7 @@ void usbdocument::DocumentUVCDriver::device_added(io_iterator_t iterator) {
         if(deviceNo>=0) {
             DLOG(LINFO,"Claimed device found.\n");
             DocumentUVCCamera *newCamera=new DocumentUVCCamera(get_camera_description(deviceNo),dev);
+//            halt=true;
             newCamera->set_driver(this);
             io_object_t notification;
             IOServiceAddInterestNotification(notifyPort, usbDeviceRef, kIOGeneralInterest, interestCallback, newCamera, &notification);
@@ -95,7 +113,14 @@ void usbdocument::DocumentUVCDriver::device_added(io_iterator_t iterator) {
     }
 }
 void usbdocument::DocumentUVCDriver::device_removed(io_iterator_t iterator) {
-    
+    io_service_t            usbDeviceRef=IO_OBJECT_NULL;
+    while (usbDeviceRef=IOIteratorNext(iterator)) {
+        IOObjectRelease(usbDeviceRef);
+        while (usbDeviceRef != kCVReturnSuccess) {
+            printf("无法释放原始设备：％x \ n", usbDeviceRef);
+            break;
+        }
+    }
 }
 
 void usbdocument::DocumentUVCDriver::do_driver_loop() {
@@ -120,15 +145,22 @@ void usbdocument::DocumentUVCDriver::do_driver_loop() {
     
     io_iterator_t gRawAddedIter;
     io_iterator_t gRawRemovedIter;
+    
+    io_iterator_t gBulkTestAddedIter;
+    io_iterator_t gBulkTestRemovedIter;
+    
     unsigned int i;
     for (i=0;i<get_num_descriptions();i++) {
         UVCCameraDescription *description=get_camera_description(i);
         DLOG(LDEBUG,"Adding device description with vendor %d and product %d\n",description->vendor_id,description->product_id);
         SInt32 vendor=description->vendor_id;
         SInt32 product=description->product_id;
+//        SInt32 product500=0x337D;
+//        SInt32 product500=0x037A;
         CFDictionarySetValue(matchingDict, CFSTR(kUSBVendorID),
                              CFNumberCreate(kCFAllocatorDefault,
                                             kCFNumberSInt32Type, &(vendor)));
+//        CFDictionarySetValue ( matchingDict, CFSTR ( kUSBProductID ), CFSTR ( "*" ) );
         CFDictionarySetValue(matchingDict, CFSTR(kUSBProductID),
                              CFNumberCreate(kCFAllocatorDefault,
                                             kCFNumberSInt32Type, &(product)));
@@ -141,12 +173,40 @@ void usbdocument::DocumentUVCDriver::do_driver_loop() {
                                               kIOFirstMatchNotification, matchingDict,
                                               ::device_added, this, &(gRawAddedIter));
         DLOG(LDEBUG,"Checking for already plugged-in devices...\n");
+        
+        io_service_t            usbDeviceRef=IO_OBJECT_NULL;
+        while (usbDeviceRef=IOIteratorNext(gRawAddedIter)) {
+            IOObjectRelease(usbDeviceRef);
+            while (usbDeviceRef != kCVReturnSuccess) {
+                printf("无法释放原始设备对  --  象：％x \ n", usbDeviceRef);
+                break;
+            }
+        }
+        
         ::device_added(this, gRawAddedIter);
         
         kr = IOServiceAddMatchingNotification(notifyPort,
                                               kIOTerminatedNotification, matchingDict,
                                               ::device_removed, this, &(gRawRemovedIter));
         ::device_removed(this, gRawRemovedIter);
+        
+//        CFDictionarySetValue ( matchingDict, CFSTR ( kUSBProductID ), CFSTR ( "*" ) );
+//        CFDictionarySetValue(matchingDict, CFSTR(kUSBProductName),
+//                             CFNumberCreate(kCFAllocatorDefault,
+//                                            kCFNumberSInt32Type, &(product)));
+//        
+//        
+//        kr = IOServiceAddMatchingNotification(notifyPort,
+//                                              kIOFirstMatchNotification, matchingDict,
+//                                              ::BulkTestDeviceAdded, NULL, &gBulkTestAddedIter);
+//        ::BulkTestDeviceAdded(this, gBulkTestAddedIter);
+//        
+//        
+//        kr = IOServiceAddMatchingNotification(notifyPort,
+//                                              kIOTerminatedNotification, matchingDict,
+//                                              ::BulkTestDeviceRemoved, NULL, &gBulkTestRemovedIter);
+//        
+//        ::BulkTestDeviceRemoved(this, gBulkTestRemovedIter);
         
     }
     DLOG(LINFO,"Starting driver watching...\n");
@@ -201,7 +261,7 @@ usbdocument::DocumentUVCCamera::DocumentUVCCamera( UVCCameraDescription *descrip
     has_opened=false;
 }
 void usbdocument::DocumentUVCCamera::on_interest_callback(natural_t messageType, void *messageArgument) {
-    DLOG(LINFO,"Interest callback for camera\n");
+    DLOG(LINFO,"Interest callback for camera --  \n", messageType);
     switch(messageType) {
         case kIOMessageServiceIsAttemptingOpen:
             DLOG(LINFO,"Attempting open...\n");
@@ -214,7 +274,7 @@ void usbdocument::DocumentUVCCamera::on_interest_callback(natural_t messageType,
             
         case kIOMessageServiceWasClosed:
             DLOG(LINFO,"Close completed...\n");
-            
+//            driver->on_camera_removed(this);
             break;
         case kIOMessageServiceIsTerminated:
             DLOG(LINFO,"Camera unplugged...\n");
@@ -348,7 +408,11 @@ void usbdocument::DocumentUVCCamera::open() {
     }
     //Setup settings
     UVC_VIDEO_CONTROL *control=uvc_dev->get_control_interface();
+//    __block pthread_mutex_t mutex;
+//    pthread_mutex_init(&mutex, NULL);
+//    pthread_mutex_lock(&mutex);
     setup_setting_descriptions();
+//    pthread_mutex_unlock(&mutex);
     setup_settings(control);
     has_opened=true;
     current_format=0;
